@@ -6,6 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import os
 
+
 class DatabaseApp:
     def __init__(self, root):
         self.root = root
@@ -34,7 +35,8 @@ class DatabaseApp:
         self.database_entry = tk.Entry(self.connection_frame)
         self.database_entry.grid(row=3, column=1, pady=5)
 
-        tk.Button(self.connection_frame, text="Connect", command=self.connect_to_database).grid(row=4, columnspan=2, pady=10)
+        tk.Button(self.connection_frame, text="Connect", command=self.connect_to_database).grid(row=4, columnspan=2,
+                                                                                                pady=10)
 
     def create_screenshot_button(self):
         self.screenshot_button = tk.Button(self.root, text="Take Screenshots", command=self.take_screenshots)
@@ -56,12 +58,18 @@ class DatabaseApp:
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+
     def connect_to_database(self):
         self.connection_details = {
-            'host': self.host_entry.get(),
-            'user': self.user_entry.get(),
-            'password': self.password_entry.get(),
-            'database': self.database_entry.get()
+            # 'host': self.host_entry.get(),
+            # 'user': self.user_entry.get(),
+            # 'password': self.password_entry.get(),
+            # 'database': self.database_entry.get()
+
+            'host': 'localhost',
+            'user': 'kbtonmoy',
+            'password': '6677',
+            'database': 'forclient'
         }
         try:
             connection = mysql.connector.connect(**self.connection_details)
@@ -91,24 +99,32 @@ class DatabaseApp:
 
     def take_screenshots(self):
         chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Running in headless mode
-        driver = webdriver.Chrome(options=chrome_options)  # Replace with the path to your ChromeDriver
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--ignore-certificate-errors")  # Ignore SSL errors
+        chrome_options.add_argument("--start-maximized")  # Start maximized
+        chrome_options.add_argument("--window-size=1920,1080")  # Set window size
+        chrome_options.add_argument("--hide-scrollbars")  # Set window size
+        driver = webdriver.Chrome(options=chrome_options)
 
         os.makedirs('screenshots', exist_ok=True)  # Ensure the screenshot directory exists
 
         for var, url in self.checkboxes:
             if var.get():
                 try:
+                    if not url.startswith(('http://', 'https://')):
+                        url = 'http://' + url  # Add http:// if not present
                     driver.get(url)
                     # Adjust the timeout as needed
                     driver.implicitly_wait(3)  # Wait for the page to load
-                    screenshot_path = os.path.join('screenshots', f"{url.replace('http://', '').replace('https://', '').replace('/', '_')}.png")
+                    screenshot_path = os.path.join('screenshots',
+                                                   f"{url.replace('http://', '').replace('https://', '').replace('/', '_')}.png")
                     driver.save_screenshot(screenshot_path)
                 except Exception as e:
                     print(f"Error taking screenshot of {url}: {e}")
 
         driver.quit()
         messagebox.showinfo("Info", "Screenshots taken")
+
 
 if __name__ == "__main__":
     root = tk.Tk()
