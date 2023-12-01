@@ -5,6 +5,7 @@ import mysql.connector
 from mysql.connector import Error
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException
 import csv
 import os
 from threading import Thread
@@ -146,21 +147,35 @@ class DatabaseApp:
 
         os.makedirs('screenshots', exist_ok=True)
 
+        # Function to attempt to load the URL and take a screenshot
+        def attempt_load_and_capture(url_with_protocol):
+            try:
+                driver.get(url_with_protocol)
+                driver.implicitly_wait(5)  # Adjust the timeout as needed
+                screenshot_filename = f"{url.replace('http://', '').replace('https://', '').replace('www.', '').replace('/', '_')}.png"
+                screenshot_path = os.path.join('screenshots', screenshot_filename)
+                driver.save_screenshot(screenshot_path)
+                self.update_database(url, screenshot_path)
+                return True
+            except TimeoutException:
+                print(f"Timeout while accessing {url_with_protocol}")
+                return False  # Indicates a timeout occurred
+            except Exception as e:
+                print(f"Error taking screenshot of {url_with_protocol}: {e}")
+                return False
 
-        try:
-            if not url.startswith(('http://', 'https://')):
-                url = 'http://' + url
-            driver.get(url)
-            driver.implicitly_wait(3)  # Adjust the timeout as needed
-            screenshot_filename = f"{url.replace('http://', '').replace('https://', '').replace('/', '_')}.png"
-            screenshot_path = os.path.join('screenshots', screenshot_filename)
-            driver.save_screenshot(screenshot_path)
-            self.update_database(url, screenshot_path)
-            driver.quit()
-            self.queue.put("done")
-        except Exception as e:
-            print(f"Error taking screenshot of {url}: {e}")
-        return True
+        url_attempted = False
+        if not url.startswith(('http://', 'https://')):
+            # Try with https:// first, then https://www., and finally http://
+            for prefix in ['https://', 'https://www.', 'http://']:
+                if attempt_load_and_capture(prefix + url):
+                    url_attempted = True
+                    break  # Exit if successful
+
+        # Ensure the queue.put("done") is executed regardless of the outcome
+        self.queue.put("done")  # Moved outside the if block
+
+        driver.quit()
 
     def update_database(self, url, screenshot_path):
         try:
