@@ -11,7 +11,6 @@ from selenium.common.exceptions import TimeoutException
 import csv
 import queue
 import cv2
-import numpy as np
 from moviepy.editor import VideoFileClip
 from moviepy.config import change_settings
 from threading import Thread
@@ -67,7 +66,7 @@ class DatabaseApp:
     def create_option_buttons(self):
         # New method to create buttons for "Take Screenshots", "Prepare Videos", "Upload on YouTube"
         tk.Button(self.root, text="Take Screenshots", command=self.take_screenshots_frame).pack()
-        tk.Button(self.root, text="Prepare Videos", command=self.prepare_videos_frame).pack()
+        tk.Button(self.root, text="Prepare Videos", command=self.open_video_preparation_frame).pack()
         tk.Button(self.root, text="Upload on YouTube", command=self.upload_youtube_frame).pack()
 
     def create_screenshot_button(self):
@@ -213,7 +212,8 @@ class DatabaseApp:
         screenshot = cv2.imread(screenshot_path)
         facecam_video = VideoFileClip(video_path)
         processed_video = facecam_video.fl_image(process_frame)
-        output_dir = 'videos'
+        # Use user-selected export directory instead of hardcoded 'videos'
+        output_dir = self.export_dir if self.export_dir else 'videos'
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         processed_video.write_videofile(os.path.join(output_dir, output_path), fps=facecam_video.fps)
@@ -251,7 +251,7 @@ class DatabaseApp:
         screenshots = cursor.fetchall()
 
         # Constant path for the video
-        video_path = 'video.mp4'
+        video_path = self.video_path if self.video_path else 'video.mp4'
 
         # Generating output paths dynamically based on root_domain
         output_paths = [f"{root_domain}.mp4" for root_domain, _ in screenshots]
@@ -274,9 +274,47 @@ class DatabaseApp:
             thread.join()
 
         cursor.close()
-        print("Done processing videos")
+        messagebox.showinfo("Info", "Done processing videos")
 
 
+    def open_video_preparation_frame(self):
+        # New window (or frame) for video preparation settings
+        self.prep_window = tk.Toplevel(self.root)
+        self.prep_window.title("Video Preparation Settings")
+
+        # Input field for video file
+        tk.Label(self.prep_window, text="Select a video file:").pack()
+        self.video_path_var = tk.StringVar()
+        tk.Entry(self.prep_window, textvariable=self.video_path_var, state='readonly').pack()
+        tk.Button(self.prep_window, text="Browse", command=self.select_video_file).pack()
+
+        # Input field for export directory
+        tk.Label(self.prep_window, text="Select export directory:").pack()
+        self.export_dir_var = tk.StringVar()
+        tk.Entry(self.prep_window, textvariable=self.export_dir_var, state='readonly').pack()
+        tk.Button(self.prep_window, text="Browse", command=self.select_export_directory).pack()
+
+        # Submit button
+        tk.Button(self.prep_window, text="Submit", command=self.save_video_settings).pack()
+
+    def select_video_file(self):
+        # Open file dialog to select a video file
+        file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4;*.avi;*.mov")])
+        if file_path:
+            self.video_path_var.set(file_path)
+
+    def select_export_directory(self):
+        # Open directory dialog to select an export directory
+        directory = filedialog.askdirectory()
+        if directory:
+            self.export_dir_var.set(directory)
+
+    def save_video_settings(self):
+        # Save the video path and export directory
+        self.video_path = self.video_path_var.get()
+        self.export_dir = self.export_dir_var.get()
+        self.prep_window.destroy()
+        self.prepare_videos_frame()
 # Global Functions are here
 
     def clear_all_widgets(self):
