@@ -1,3 +1,5 @@
+import shutil
+import threading
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog, messagebox
@@ -7,9 +9,13 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException
 import csv
-import os
-from threading import Thread
 import queue
+import cv2
+import numpy as np
+from moviepy.editor import VideoFileClip
+from moviepy.config import change_settings
+from threading import Thread
+import os
 
 class DatabaseApp:
     def __init__(self, root):
@@ -43,10 +49,6 @@ class DatabaseApp:
 
         tk.Button(self.connection_frame, text="Connect", command=self.connect_to_database).grid(row=4, columnspan=2,
                                                                                                 pady=10)
-
-    def prepare_videos_frame(self):
-        # Placeholder method for "Prepare Videos" functionality
-        messagebox.showinfo("Info", "Prepare Videos functionality not implemented yet")
 
     def upload_youtube_frame(self):
         # Placeholder method for "Upload on YouTube" functionality
@@ -186,6 +188,93 @@ class DatabaseApp:
             cursor.close()
         except Error as e:
             messagebox.showerror("Database Error", f"Error updating the database: {e}")
+
+    def process_video(self, screenshot_path, video_path, output_path, temp_folder):
+        change_settings({"TEMP_FOLDER": temp_folder})
+        def process_frame(frame):
+            # Convert frame to RGB (OpenCV uses BGR by default)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Create a mask where black pixels ([0,0,0]) are detected in the frame
+            mask = cv2.inRange(frame_rgb, (0, 0, 0), (10, 10, 10))
+            # Invert mask to get parts that are not black
+            mask_inv = cv2.bitwise_not(mask)
+            # Use the mask to extract the facecam area (excluding black background)
+            facecam_area = cv2.bitwise_and(frame_rgb, frame_rgb, mask=mask_inv)
+            # Resize screenshot to frame size
+            resized_screenshot = cv2.resize(screenshot, (frame.shape[1], frame.shape[0]))
+            # Combine the facecam area and the resized screenshot
+            combined = cv2.bitwise_and(resized_screenshot, resized_screenshot, mask=mask)
+            combined = cv2.add(combined, facecam_area)
+            # Convert back to BGR for MoviePy
+            final_frame = cv2.cvtColor(combined, cv2.COLOR_RGB2BGR)
+            return final_frame
+
+        # Load your screenshot and facecam video
+        screenshot = cv2.imread(screenshot_path)
+        facecam_video = VideoFileClip(video_path)
+        processed_video = facecam_video.fl_image(process_frame)
+        output_dir = 'videos'
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        processed_video.write_videofile(os.path.join(output_dir, output_path), fps=facecam_video.fps)
+
+
+    def update_video_database(self, root_domain, location, cursor):
+        add_video_query = "INSERT INTO url_videos (root_domain, location) VALUES (%s, %s)"
+        cursor.execute(add_video_query, (root_domain, location))
+        self.connection.commit()
+
+    def video_processing_thread(self, data, cursor):
+        for screenshot_path, video_path, output_path, root_domain in data:
+            # Unique temporary folder for each video processing
+            temp_folder = f"temp_{root_domain}_{threading.get_ident()}"
+            os.makedirs(temp_folder, exist_ok=True)
+
+            self.process_video(screenshot_path, video_path, output_path, temp_folder)
+
+            # Clean up the temporary folder after processing this video
+            shutil.rmtree(temp_folder)
+
+            self.update_video_database(root_domain, output_path, cursor)
+
+    def prepare_videos_frame(self):
+        cursor = self.connection.cursor()
+
+        select_query = """
+        SELECT s.root_domain, s.location
+        FROM url_screenshots s
+        WHERE NOT EXISTS (
+            SELECT 1 FROM url_videos v WHERE v.root_domain = s.root_domain
+        )
+        """
+        cursor.execute(select_query)
+        screenshots = cursor.fetchall()
+
+        # Constant path for the video
+        video_path = 'video.mp4'
+
+        # Generating output paths dynamically based on root_domain
+        output_paths = [f"{root_domain}.mp4" for root_domain, _ in screenshots]
+
+        num_threads = 5
+        threads = []
+
+        # Divide the work among multiple threads
+        for i in range(num_threads):
+            # Correctly distribute screenshots and output_paths among threads
+            thread_screenshots = screenshots[i::num_threads]
+            thread_output_paths = output_paths[i::num_threads]
+            thread_data = [(s[1], video_path, op, s[0]) for s, op in zip(thread_screenshots, thread_output_paths)]
+
+            thread = Thread(target=self.video_processing_thread, args=(thread_data, cursor))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        cursor.close()
+        print("Done processing videos")
 
 
 # Global Functions are here
