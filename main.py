@@ -15,6 +15,11 @@ from moviepy.editor import VideoFileClip
 from moviepy.config import change_settings
 from threading import Thread
 import os
+import google_auth_oauthlib.flow
+import googleapiclient.discovery
+import googleapiclient.errors
+from googleapiclient.http import MediaFileUpload
+
 
 class DatabaseApp:
     def __init__(self, root):
@@ -67,7 +72,7 @@ class DatabaseApp:
         # New method to create buttons for "Take Screenshots", "Prepare Videos", "Upload on YouTube"
         tk.Button(self.root, text="Take Screenshots", command=self.take_screenshots_frame).pack()
         tk.Button(self.root, text="Prepare Videos", command=self.open_video_preparation_frame).pack()
-        tk.Button(self.root, text="Upload on YouTube", command=self.upload_youtube_frame).pack()
+        tk.Button(self.root, text="Upload on YouTube", command=self.process_and_upload_videos).pack()
 
     def create_screenshot_button(self):
         self.screenshot_button = tk.Button(self.root, text="Start Capturing", command=self.take_screenshots)
@@ -97,6 +102,9 @@ class DatabaseApp:
                 self.show_success_frame()
         except Error as e:
             messagebox.showerror("Error", f"Error connecting to MySQL Database: {e}")
+
+
+    # Screenshot Taking Logics are here
 
     def upload_csv(self):
         filename = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
@@ -188,6 +196,8 @@ class DatabaseApp:
         except Error as e:
             messagebox.showerror("Database Error", f"Error updating the database: {e}")
 
+    # Video Generation Logics are here
+
     def process_video(self, screenshot_path, video_path, output_path, temp_folder):
         change_settings({"TEMP_FOLDER": temp_folder})
         def process_frame(frame):
@@ -218,11 +228,52 @@ class DatabaseApp:
             os.makedirs(output_dir)
         processed_video.write_videofile(os.path.join(output_dir, output_path), fps=facecam_video.fps)
 
-
     def update_video_database(self, root_domain, location, cursor):
-        add_video_query = "INSERT INTO url_videos (root_domain, location) VALUES (%s, %s)"
-        cursor.execute(add_video_query, (root_domain, location))
+        description_template = """
+My name is {category_name}, {company} I have been an ecommerce seller since 2013. I came across your ecommerce site, {URL}, and I think it looks great! I have my own site as well, using woocommerce on a WordPress site, and I also have listings on Amazon, Walmart.com and a few other platforms.
+
+I am very aware of the challenges that face ecommerce sellers, especially in the area of inventory management. I have developed an inventory management training course and software solution I think you might be interested in: The Inventory Boss. This training system and web-based software solution follow an 8-step system that has proven very effective for all the sellers who have used it, and I wanted to give you a special invitation today to learn more about how the Inventory Boss can help you add some additional percentage points to your net profits.
+
+Please visit [https://inventoryboss.com](https://inventoryboss.com) to read reviews from our subscribers stating how this changed their business, and to see how this multi-channel inventory management system can help you become an expert inventory manager in your business.
+
+To learn more about our 8-step system, please visit [https://inventoryboss.com/8steps](https://inventoryboss.com/8steps)
+
+## The Inventory Boss
+
+**Have you ever noticed that you could find an online course, webinar or seminar for just about every subject needed to run an ecommerce business? Yep, with the glaring exception of inventory management or supply chain logistics. Ever wonder why that is?**
+
+**Where or Who do you go to learn how to:**
+
+- Forecast future sales
+- Adjust for periods of seasonality
+- Prepare for spikes in sales
+- Adjust for new competition or market conditions
+- Know exactly when to reorder
+- Know how much to order
+- Know how much to ship to a distribution center from your warehouse
+
+Seems like this should be taught alongside subjects like product selection, how to optimize your listing, keyword research, social media, chat bots, or sponsored ads, etc. Right? But it isn’t. And not having this knowledge can prove frustrating and a bit intimidating for many sellers, especially when their business grows with more products and categories added, and more platforms to sell on, etc.
+
+When I started on my ecommerce journey in 2013, my first platform was Amazon. Trust me when I tell you, it was a way better platform for profit back then. You could even make mistakes, and the profits still rolled in. Not so much today. Today, you need to be sharp and fight for every percentage of profit margin you can get.
+
+As our business took off, I started to struggle with all the inventory issues listed above, as did my other seller friends. It turns out, inventory management is pretty darn important if you want to grow and scale your business.
+
+So, if you too want to master the inventory and logistics management of your business, buckle up and get ready to toss your clunky spreadsheet(s) in the bin. I am going to teach you what you need to know to maximize your profits by balancing your inventory.
+
+Continue at [https://inventoryboss/8steps](https://inventoryboss/8steps) ...
+
+           """
+        # Fetch dynamic data from ecom_platform1
+        dynamic_data = self.get_dynamic_data(root_domain, cursor)
+
+        # Format the description
+        video_description = self.format_description(description_template, dynamic_data)
+
+        # Insert into url_videos table with description
+        add_video_query = "INSERT INTO url_videos (root_domain, location, yt_video_description) VALUES (%s, %s, %s)"
+        cursor.execute(add_video_query, (root_domain, location, video_description))
         self.connection.commit()
+        messagebox.showinfo("Info", "Done processing videos and database updating")
 
     def video_processing_thread(self, data, cursor):
         for screenshot_path, video_path, output_path, root_domain in data:
@@ -250,6 +301,9 @@ class DatabaseApp:
         cursor.execute(select_query)
         screenshots = cursor.fetchall()
 
+        # Display the number of videos being processed
+        self.total_videos =  len(screenshots)
+
         # Constant path for the video
         video_path = self.video_path if self.video_path else 'video.mp4'
 
@@ -274,8 +328,6 @@ class DatabaseApp:
             thread.join()
 
         cursor.close()
-        messagebox.showinfo("Info", "Done processing videos")
-
 
     def open_video_preparation_frame(self):
         # New window (or frame) for video preparation settings
@@ -313,6 +365,64 @@ class DatabaseApp:
         self.video_path = self.video_path_var.get()
         self.export_dir = self.export_dir_var.get()
         self.prepare_videos_frame()
+
+    def get_dynamic_data(self, root_domain, cursor):
+        query = "SELECT category_name, company, root_domain FROM ecom_platform1 WHERE root_domain = %s"
+        cursor.execute(query, (root_domain,))
+        result = cursor.fetchone()
+        if result:
+            return {'category_name': result[0], 'company': result[1], 'URL': result[2]}
+        return {}
+
+    def format_description(self, template, data):
+        description = template.format(**data)
+        return description
+
+
+
+    # Youtube Video Uploading Logics are here
+
+    def fetch_video_records(self):
+        query = "SELECT location, yt_video_description FROM url_videos"
+        cursor = self.connection.cursor()
+        cursor.execute(query)
+        return cursor.fetchall()  # Returns a list of tuples (location, yt_video_description)
+
+    def upload_video(self, file_path, description, title, category_id=22, privacy_status='unlisted'):
+        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+        api_service_name = "youtube"
+        api_version = "v3"
+        client_secrets_file = "keys/client_secret.json"
+
+        # Get credentials and create an API client
+        scopes = ["https://www.googleapis.com/auth/youtube.upload"]
+        flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
+            client_secrets_file, scopes=scopes)
+
+        # Use 'run_local_server' instead of 'run_console'
+        credentials = flow.run_local_server(port=8080)
+        youtube = googleapiclient.discovery.build(api_service_name, api_version, credentials=credentials)
+
+        request = youtube.videos().insert(
+            part="snippet,status",
+            body={
+                "snippet": {"categoryId": category_id, "description": description, "title": title},
+                "status": {"privacyStatus": privacy_status}
+            },
+            media_body=MediaFileUpload(file_path)
+        )
+        response = request.execute()
+        print(f"Uploaded video ID: {response['id']}")
+
+    def process_and_upload_videos(self):
+        records = self.fetch_video_records()
+        for location, description in records:
+            title = os.path.basename(location)  # You might want to customize how you determine the title
+            try:
+                self.upload_video(location, description, title)
+                print(f"Successfully uploaded: {title}")
+            except Exception as e:
+                print(f"Failed to upload {title}. Error: {str(e)}")
 # Global Functions are here
 
     def clear_all_widgets(self):
