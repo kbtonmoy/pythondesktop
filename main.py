@@ -19,6 +19,7 @@ import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import googleapiclient.errors
 from googleapiclient.http import MediaFileUpload
+from video import upload_yt_video
 
 
 class DatabaseApp:
@@ -400,7 +401,7 @@ Continue at [https://inventoryboss/8steps](https://inventoryboss/8steps) ...
             client_secrets_file, scopes=scopes)
 
         # Use 'run_local_server' instead of 'run_console'
-        credentials = flow.run_local_server(port=8080)
+        credentials = flow.run_local_server()
         youtube = googleapiclient.discovery.build(api_service_name, api_version, credentials=credentials)
 
         request = youtube.videos().insert(
@@ -417,9 +418,10 @@ Continue at [https://inventoryboss/8steps](https://inventoryboss/8steps) ...
     def process_and_upload_videos(self):
         records = self.fetch_video_records()
         for location, description in records:
-            title = os.path.basename(location)  # You might want to customize how you determine the title
+            title = os.path.basename(location)  # Customizing the title
             try:
-                self.upload_video(location, description, title)
+                upload_yt_video(file=location, title=title, description=description, category="22", keywords="",
+                                privacyStatus="unlisted")
                 print(f"Successfully uploaded: {title}")
             except Exception as e:
                 print(f"Failed to upload {title}. Error: {str(e)}")
