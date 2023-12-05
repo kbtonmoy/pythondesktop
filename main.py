@@ -256,7 +256,7 @@ class DatabaseApp:
             os.makedirs(temp_folder, exist_ok=True)
 
             self.process_video(screenshot_path, video_path, output_path, temp_folder)
-
+            print(output_path)
             # Clean up the temporary folder after processing this video
             shutil.rmtree(temp_folder)
 
@@ -274,6 +274,12 @@ class DatabaseApp:
         """
         cursor.execute(select_query)
         screenshots = cursor.fetchall()
+
+        # Check if no records were found and end the process if true
+        if not screenshots:
+            messagebox.showinfo("Info", "No records found. Ending process.")
+            cursor.close()
+            return
 
         # Display the number of videos being processed
         self.total_videos =  len(screenshots)
