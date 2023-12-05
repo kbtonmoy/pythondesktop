@@ -234,7 +234,7 @@ class DatabaseApp:
         # Write the processed video to the full output path
         processed_video.write_videofile(full_output_path, fps=facecam_video.fps)
 
-    def update_video_database(self, root_domain, location, cursor):
+    def update_video_database(self, root_domain, full_output_path, cursor):
         with open("video_description.txt", "r") as file:
             description_template = file.read()
         # Fetch dynamic data from ecom_platform1
@@ -245,7 +245,7 @@ class DatabaseApp:
 
         # Insert into url_videos table with description
         add_video_query = "INSERT INTO url_videos (root_domain, location, yt_video_description) VALUES (%s, %s, %s)"
-        cursor.execute(add_video_query, (root_domain, location, video_description))
+        cursor.execute(add_video_query, (root_domain, full_output_path, video_description))
         self.connection.commit()
         messagebox.showinfo("Info", "Done processing videos and database updating")
 
@@ -256,11 +256,11 @@ class DatabaseApp:
             os.makedirs(temp_folder, exist_ok=True)
 
             self.process_video(screenshot_path, video_path, output_path, temp_folder)
-            print(output_path)
+            full_output_path = os.path.join(self.export_dir if self.export_dir else 'videos', output_path)
             # Clean up the temporary folder after processing this video
             shutil.rmtree(temp_folder)
 
-            self.update_video_database(root_domain, output_path, cursor)
+            self.update_video_database(root_domain, full_output_path, cursor)
 
     def prepare_videos_frame(self):
         cursor = self.connection.cursor()
