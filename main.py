@@ -29,6 +29,7 @@ class DatabaseApp:
         self.connection_details = {}
         self.connection = None  # Database connection instance variable
         self.create_connection_frame()
+        self.completed_threads = 0
 
 # All Frames are here
 
@@ -85,19 +86,21 @@ class DatabaseApp:
 
 # ALl logical Functions are here
     def connect_to_database(self):
-        self.connection_details = {
-            # 'host': self.host_entry.get(),
-            # 'user': self.user_entry.get(),
-            # 'password': self.password_entry.get(),
-            # 'database': self.database_entry.get()
+        # host = self.host_entry.get()
+        # user = self.user_entry.get()
+        # password = self.password_entry.get()
+        # database = self.database_entry.get()
+        host = "localhost"
+        user = "kbtonmoy"
+        password = "6677"
+        database = "forclient"
 
-            'host': 'localhost',
-            'user': 'kbtonmoy',
-            'password': '6677',
-            'database': 'forclient'
-        }
         try:
-            self.connection = mysql.connector.connect(**self.connection_details)
+            self.connection = mysql.connector.connect(host=host, user=user, password=password, database=database)
+            self.host = host
+            self.user = user
+            self.password = password
+            self.database = database
             if self.connection.is_connected():
                 self.connection_frame.destroy()
                 self.show_success_frame()
@@ -119,6 +122,8 @@ class DatabaseApp:
             self.start_screenshot_process(urls)
 
     def start_screenshot_process(self, urls):
+        self.render_label = tk.Label(self.root, text="Screenshot taking in progress...")
+        self.render_label.pack()
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(self.root, variable=self.progress_var, maximum=len(urls))
         self.progress_bar.pack()
@@ -142,6 +147,8 @@ class DatabaseApp:
         if self.progress_var.get() == self.progress_bar['maximum']:
             self.progress_bar.destroy()
             messagebox.showinfo("Info", "Screenshots taken for all URLs and database updated")
+            self.clear_all_widgets()
+            self.create_option_buttons()
         else:
             self.root.after(100, self.check_queue)
 
@@ -198,6 +205,20 @@ class DatabaseApp:
             messagebox.showerror("Database Error", f"Error updating the database: {e}")
 
     # Video Generation Logics are here
+    def initialize_video_render_progress_bar(self):
+        self.render_label = tk.Label(self.root, text="Rendering in progress...")
+        self.render_label.pack()
+        self.progress = ttk.Progressbar(self.root, orient="horizontal", length=300, mode='determinate')
+        self.progress.pack()
+
+
+    def destroy_video_render_progress_bar(self):
+        if self.progress:
+            self.progress.destroy()
+            self.progress = None  # Set to None to avoid referencing a destroyed object
+
+    def update_progress(self, value):
+        self.progress['value'] = value
 
     def process_video(self, screenshot_path, video_path, output_path, temp_folder):
         change_settings({"TEMP_FOLDER": temp_folder})
@@ -234,33 +255,58 @@ class DatabaseApp:
         # Write the processed video to the full output path
         processed_video.write_videofile(full_output_path, fps=facecam_video.fps)
 
-    def update_video_database(self, root_domain, full_output_path, cursor):
-        with open("video_description.txt", "r") as file:
-            description_template = file.read()
-        # Fetch dynamic data from ecom_platform1
-        dynamic_data = self.get_dynamic_data(root_domain, cursor)
+    def update_video_database(self, root_domain, full_output_path, cursor, connection):
+        try:
+            with open("video_description.txt", "r") as file:
+                description_template = file.read()
+            # Fetch dynamic data from ecom_platform1
+            dynamic_data = self.get_dynamic_data(root_domain, cursor)
 
-        # Format the description
-        video_description = self.format_description(description_template, dynamic_data)
+            # Format the description
+            video_description = self.format_description(description_template, dynamic_data)
 
-        # Insert into url_videos table with description
-        add_video_query = "INSERT INTO url_videos (root_domain, location, yt_video_description) VALUES (%s, %s, %s)"
-        cursor.execute(add_video_query, (root_domain, full_output_path, video_description))
-        self.connection.commit()
-        messagebox.showinfo("Info", "Done processing videos and database updating")
+            # Insert into url_videos table with description
+            add_video_query = "INSERT INTO url_videos (root_domain, location, yt_video_description) VALUES (%s, %s, %s)"
+            cursor.execute(add_video_query, (root_domain, full_output_path, video_description))
+            connection.commit()
+        except Exception as e:
+            messagebox.showinfo("Info", f"Error updating database: {e}")
 
-    def video_processing_thread(self, data, cursor):
-        for screenshot_path, video_path, output_path, root_domain in data:
-            # Unique temporary folder for each video processing
-            temp_folder = f"temp_{root_domain}_{threading.get_ident()}"
-            os.makedirs(temp_folder, exist_ok=True)
 
-            self.process_video(screenshot_path, video_path, output_path, temp_folder)
-            full_output_path = os.path.join(self.export_dir if self.export_dir else 'videos', output_path)
-            # Clean up the temporary folder after processing this video
-            shutil.rmtree(temp_folder)
+    def video_processing_thread(self, data, cursor, total_threads):
+        local_connection = mysql.connector.connect(host=self.host, user=self.user, password=self.password,
+                                                   database=self.database)
+        local_cursor = local_connection.cursor()
+        try:
+            total_videos = len(data)
+            for index, (screenshot_path, video_path, output_path, root_domain) in enumerate(data):
+                # Unique temporary folder for each video processing
+                temp_folder = f"temp_{root_domain}_{threading.get_ident()}"
+                os.makedirs(temp_folder, exist_ok=True)
 
-            self.update_video_database(root_domain, full_output_path, cursor)
+                self.process_video(screenshot_path, video_path, output_path, temp_folder)
+                full_output_path = os.path.join(self.export_dir if self.export_dir else 'videos', output_path)
+                # Clean up the temporary folder after processing this video
+
+                self.update_video_database(root_domain, full_output_path, local_cursor, local_connection)
+                shutil.rmtree(temp_folder)
+                # Update progress bar
+                progress_percent = (index + 1) / total_videos * 100
+                self.root.after(100, lambda p=progress_percent: self.update_progress(p))
+
+        finally:
+            local_cursor.close()
+            local_connection.close()
+            with threading.Lock():
+                self.completed_threads += 1
+                if self.completed_threads == total_threads:
+                    self.root.after(100, self.on_all_threads_complete)
+
+    def on_all_threads_complete(self):
+        # This method is called when all threads are done
+        self.clear_all_widgets()
+        self.create_option_buttons()
+
 
     def prepare_videos_frame(self):
         cursor = self.connection.cursor()
@@ -275,37 +321,30 @@ class DatabaseApp:
         cursor.execute(select_query)
         screenshots = cursor.fetchall()
 
-        # Check if no records were found and end the process if true
         if not screenshots:
             messagebox.showinfo("Info", "No records found. Ending process.")
             cursor.close()
             return
-
-        # Display the number of videos being processed
-        self.total_videos =  len(screenshots)
-
-        # Constant path for the video
-        video_path = self.video_path if self.video_path else 'video.mp4'
-
-        # Generating output paths dynamically based on root_domain
-        output_paths = [f"{root_domain}.mp4" for root_domain, _ in screenshots]
+        self.clear_all_widgets()
+        self.initialize_video_render_progress_bar()
+        self.progress['value'] = 0
+        self.completed_threads = 0  # Reset the counter
 
         num_threads = 5
         threads = []
 
-        # Divide the work among multiple threads
+        # Constant path for the video
+        video_path = self.video_path if self.video_path else 'video.mp4'
+        output_paths = [f"{root_domain}.mp4" for root_domain, _ in screenshots]
+
         for i in range(num_threads):
-            # Correctly distribute screenshots and output_paths among threads
             thread_screenshots = screenshots[i::num_threads]
             thread_output_paths = output_paths[i::num_threads]
             thread_data = [(s[1], video_path, op, s[0]) for s, op in zip(thread_screenshots, thread_output_paths)]
 
-            thread = Thread(target=self.video_processing_thread, args=(thread_data, cursor))
+            thread = Thread(target=self.video_processing_thread, args=(thread_data, cursor, self.on_all_threads_complete))
             threads.append(thread)
             thread.start()
-
-        for thread in threads:
-            thread.join()
 
         cursor.close()
 
