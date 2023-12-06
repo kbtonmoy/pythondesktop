@@ -257,17 +257,22 @@ class DatabaseApp:
 
     def update_video_database(self, root_domain, full_output_path, cursor, connection):
         try:
-            with open("video_description.txt", "r") as file:
-                description_template = file.read()
+            with open("video_description.txt", "r") as desc_file:
+                description_template = desc_file.read()
+
+            with open("video_title.txt", "r") as title_file:
+                title_template = title_file.read()
             # Fetch dynamic data from ecom_platform1
             dynamic_data = self.get_dynamic_data(root_domain, cursor)
 
             # Format the description
             video_description = self.format_description(description_template, dynamic_data)
 
+            video_title = self.format_description(title_template, dynamic_data)
+
             # Insert into url_videos table with description
-            add_video_query = "INSERT INTO url_videos (root_domain, location, yt_video_description) VALUES (%s, %s, %s)"
-            cursor.execute(add_video_query, (root_domain, full_output_path, video_description))
+            add_video_query = "INSERT INTO url_videos (root_domain, location, yt_video_description, yt_video_title) VALUES (%s, %s, %s, %s)"
+            cursor.execute(add_video_query, (root_domain, full_output_path, video_description, video_title))
             connection.commit()
         except Exception as e:
             messagebox.showinfo("Info", f"Error updating database: {e}")
