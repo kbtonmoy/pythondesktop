@@ -86,14 +86,14 @@ class DatabaseApp:
 
 # ALl logical Functions are here
     def connect_to_database(self):
-        # host = self.host_entry.get()
-        # user = self.user_entry.get()
-        # password = self.password_entry.get()
-        # database = self.database_entry.get()
-        host = "localhost"
-        user = "kbtonmoy"
-        password = "6677"
-        database = "forclient"
+        host = self.host_entry.get()
+        user = self.user_entry.get()
+        password = self.password_entry.get()
+        database = self.database_entry.get()
+        # host = "localhost"
+        # user = "kbtonmoy"
+        # password = "6677"
+        # database = "forclient"
 
         try:
             self.connection = mysql.connector.connect(host=host, user=user, password=password, database=database)
@@ -416,21 +416,34 @@ class DatabaseApp:
     # Youtube Video Uploading Logics are here
 
     def fetch_video_records(self):
-        query = "SELECT location, yt_video_description FROM url_videos"
+        query = "SELECT root_domain, location, yt_video_description, yt_video_title  FROM url_videos"
         cursor = self.connection.cursor()
         cursor.execute(query)
         return cursor.fetchall()  # Returns a list of tuples (location, yt_video_description)
 
     def process_and_upload_videos(self):
         records = self.fetch_video_records()
-        for location, description in records:
-            title = os.path.basename(location)  # Customizing the title
+        for root_domain, location, description, title in records:
             try:
-                upload_yt_video(file=location, title=title, description=description, category="22", keywords="",
+                video_id = upload_yt_video(file=location, title=title, description=description, category="22", keywords="",
                                 privacyStatus="unlisted")
-                print(f"Successfully uploaded: {title}")
+                youtube_link = f"https://www.youtube.com/watch?v={video_id}"
+                print(video_id)
+
+                self.update_youtube_link_in_db(root_domain, youtube_link)
             except Exception as e:
                 print(f"Failed to upload {title}. Error: {str(e)}")
+
+    def update_youtube_link_in_db(self, root_domain, youtube_link):
+        cursor = self.connection.cursor()
+        try:
+            update_query = "UPDATE url_videos SET youtube_link = %s WHERE root_domain = %s"
+            cursor.execute(update_query, (youtube_link, root_domain))
+            self.connection.commit()
+        except Exception as e:
+            print(f"Error updating database: {e}")
+        finally:
+            cursor.close()
 
 # Global Functions are here
 

@@ -140,6 +140,7 @@ def resumable_upload(insert_request):
                 if 'id' in response:
                     print("Video id '%s' was successfully uploaded." %
                           response['id'])
+                    return response['id']
                 else:
                     exit("The upload failed with an unexpected response: %s" % response)
         except HttpError as e:
@@ -179,7 +180,9 @@ def upload_yt_video(file, title, description, category, keywords, privacyStatus)
 
     try:
         youtube = get_authenticated_service(options)
-        initialize_upload(youtube, options)
+        video_id = initialize_upload(youtube, options)
+        messagebox.showerror('error',video_id)
+        return video_id  # Return the video ID
     except HttpError as e:
         error_message = f"An HTTP error {e.resp.status} occurred:\n{e.content}"
         messagebox.showerror("Upload Error", error_message)
